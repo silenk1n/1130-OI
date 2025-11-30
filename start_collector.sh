@@ -36,6 +36,6 @@ echo ""
 file_count=$(ls -1 data/*.csv 2>/dev/null | wc -l)
 echo "当前数据文件数量: $file_count"
 
-# 直接启动融合的主程序
-echo "启动融合版本监控系统..."
-python3 binance_oi_monitor.py
+# 直接启动自动化监控系统
+echo "启动自动化监控系统..."
+python3 binance_monitor_auto.py

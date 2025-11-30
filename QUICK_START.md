@@ -9,7 +9,31 @@
 cd /path/to/project
 ```
 
-### 步骤2：一键启动
+### 步骤2：配置Telegram Bot
+
+1. 在Telegram中搜索 `@BotFather`
+2. 发送 `/newbot` 创建Bot
+3. 保存Token
+4. 向Bot发送消息
+5. 访问 `https://api.telegram.org/bot<你的Token>/getUpdates` 获取Chat ID
+
+### 步骤3：配置环境变量
+
+```bash
+# 复制配置文件
+cp .env.example .env
+
+# 编辑配置
+nano .env
+```
+
+填入：
+```env
+TELEGRAM_BOT_TOKEN=你的Token
+TELEGRAM_CHAT_ID=你的Chat ID
+```
+
+### 步骤4：一键启动
 
 ```bash
 # 运行启动脚本（推荐）
@@ -20,20 +44,17 @@ cd /path/to/project
 - ✅ 创建Python虚拟环境
 - ✅ 安装所有依赖包
 - ✅ 创建数据目录
-- ✅ 启动融合版本主程序
+- ✅ 启动**自动化监控系统**
 
-### 步骤3：选择操作
+### 步骤5：享受自动化
 
-在交互式菜单中选择：
+系统将自动：
+- 📱 发送启动成功通知
+- 📊 每5分钟采集数据
+- 🔔 实时监控并推送提醒
+- 📈 每30分钟报告运行状态
 
-```
-请选择操作:
-1. 单次数据采集     ← 推荐先测试
-2. 数据分析报告
-3. 启动定时采集     ← 长期运行
-4. 查看可用交易对
-5. 退出
-```
+**无需任何手动操作！**
 
 ## 📱 Telegram Bot快速配置
 

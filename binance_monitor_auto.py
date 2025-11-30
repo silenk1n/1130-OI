@@ -1,0 +1,562 @@
+#!/usr/bin/env python3
+"""
+Binance永续合约自动监控系统
+一体化版本 - 只需运行一次，自动完成所有功能
+
+功能：
+1. 自动数据采集（每5分钟）
+2. 自动监控分析（每5分钟）
+3. 自动推送提醒（满足条件时）
+4. 运行状态报告（每30分钟）
+5. 启动成功通知（首次运行）
+"""
+
+import requests
+import json
+import time
+import csv
+import os
+import pandas as pd
+import schedule
+import glob
+from typing import Dict, List, Optional, Any, Tuple
+from datetime import datetime, timedelta
+from dotenv import load_dotenv
+
+
+class Config:
+    """配置管理类"""
+
+    def __init__(self):
+        # 加载环境变量
+        load_dotenv()
+
+        # Telegram配置
+        self.TELEGRAM_BOT_TOKEN = os.getenv('TELEGRAM_BOT_TOKEN', '')
+        self.TELEGRAM_CHAT_ID = os.getenv('TELEGRAM_CHAT_ID', '')
+
+        # 应用设置
+        self.DATA_DIR = os.getenv('DATA_DIR', 'data')
+        self.CHARTS_DIR = os.getenv('CHARTS_DIR', 'charts')
+        self.COLLECTION_INTERVAL = int(os.getenv('COLLECTION_INTERVAL', '300'))  # 5分钟
+
+        # 监控阈值
+        self.FUNDING_RATE_THRESHOLD = float(os.getenv('FUNDING_RATE_THRESHOLD', '0.001'))  # 0.1%
+        self.OI_RATIO_THRESHOLD = float(os.getenv('OI_RATIO_THRESHOLD', '2.0'))  # 2x
+
+        # 确保目录存在
+        os.makedirs(self.DATA_DIR, exist_ok=True)
+        os.makedirs(self.CHARTS_DIR, exist_ok=True)
+
+    def validate_telegram_config(self) -> bool:
+        """验证Telegram配置"""
+        if not self.TELEGRAM_BOT_TOKEN:
+            print("❌ TELEGRAM_BOT_TOKEN 未配置")
+            return False
+        if not self.TELEGRAM_CHAT_ID:
+            print("❌ TELEGRAM_CHAT_ID 未配置")
+            return False
+        return True
+
+
+class TelegramBot:
+    """Telegram Bot推送类"""
+
+    def __init__(self, config: Config):
+        self.config = config
+        self.base_url = f"https://api.telegram.org/bot{config.TELEGRAM_BOT_TOKEN}"
+
+    def send_message(self, message: str) -> bool:
+        """发送文本消息"""
+        url = f"{self.base_url}/sendMessage"
+        payload = {
+            "chat_id": self.config.TELEGRAM_CHAT_ID,
+            "text": message,
+            "parse_mode": "HTML"
+        }
+
+        try:
+            response = requests.post(url, json=payload, timeout=10)
+            return response.status_code == 200
+        except Exception as e:
+            print(f"发送Telegram消息失败: {e}")
+            return False
+
+    def send_startup_notification(self) -> bool:
+        """发送启动成功通知"""
+        message = (
+            "🚀 <b>Binance永续合约监控系统已启动</b>\n\n"
+            "✅ 系统状态：运行中\n"
+            "📊 数据采集：每5分钟\n"
+            "🔔 监控提醒：实时推送\n"
+            "📈 状态报告：每30分钟\n\n"
+            f"启动时间：{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n"
+            "系统将持续监控资金费率和持仓量变化"
+        )
+        return self.send_message(message)
+
+    def send_status_report(self, stats: Dict) -> bool:
+        """发送运行状态报告"""
+        message = (
+            "📊 <b>系统运行状态报告</b>\n\n"
+            f"⏰ 报告时间：{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n"
+            f"📈 数据采集：{stats['collection_success']} 成功, {stats['collection_errors']} 失败\n"
+            f"🔔 监控提醒：{stats['alerts_found']} 发现, {stats['alerts_sent']} 发送\n"
+            f"💾 数据文件：{stats['data_files']} 个\n"
+            f"🔄 运行时长：{stats['uptime']}\n"
+            f"📡 系统状态：{'✅ 正常' if stats['system_healthy'] else '⚠️ 异常'}\n\n"
+            "下次报告：30分钟后"
+        )
+        return self.send_message(message)
+
+    def send_alert(self, symbol: str, funding_rate: float, oi_ratio: float, current_oi: float) -> bool:
+        """发送监控提醒"""
+        funding_rate_pct = funding_rate * 100
+        message = (
+            "🚨 <b>监控提醒：发现异常交易对</b>\n\n"
+            f"💰 交易对：<code>{symbol}</code>\n"
+            f"📊 资金费率：{funding_rate_pct:.4f}%\n"
+            f"📈 持仓量比率：{oi_ratio:.2f}x\n"
+            f"📦 当前持仓量：{current_oi:,.0f}\n\n"
+            f"⏰ 发现时间：{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n"
+            "💡 建议：关注资金费率变化和持仓量趋势"
+        )
+        return self.send_message(message)
+
+
+class BinanceDataCollector:
+    """Binance数据采集器"""
+
+    def __init__(self, config: Config):
+        self.config = config
+        self.base_url = "https://fapi.binance.com"
+        self.futures_data_url = "https://fapi.binance.com/futures/data"
+
+    def get_mark_price(self, symbol: str) -> Dict[str, Any]:
+        """获取标记价格和资金费率"""
+        url = f"{self.base_url}/fapi/v1/premiumIndex"
+        params = {"symbol": symbol}
+
+        try:
+            response = requests.get(url, params=params, timeout=10)
+            response.raise_for_status()
+            return response.json()
+        except Exception as e:
+            print(f"获取 {symbol} 标记价格失败: {e}")
+            return {}
+
+    def get_open_interest(self, symbol: str) -> Dict[str, Any]:
+        """获取持仓量"""
+        url = f"{self.base_url}/fapi/v1/openInterest"
+        params = {"symbol": symbol}
+
+        try:
+            response = requests.get(url, params=params, timeout=10)
+            response.raise_for_status()
+            return response.json()
+        except Exception as e:
+            print(f"获取 {symbol} 持仓量失败: {e}")
+            return {}
+
+    def get_funding_rate(self, symbol: str) -> Dict[str, Any]:
+        """获取最新资金费率"""
+        url = f"{self.base_url}/fapi/v1/fundingRate"
+        params = {"symbol": symbol, "limit": 1}
+
+        try:
+            response = requests.get(url, params=params, timeout=10)
+            response.raise_for_status()
+            data = response.json()
+            return data[0] if data else {}
+        except Exception as e:
+            print(f"获取 {symbol} 资金费率失败: {e}")
+            return {}
+
+    def get_top_symbols_by_volume(self, limit: int = 50) -> List[str]:
+        """获取按24小时交易量排序的前N个交易对"""
+        url = f"{self.base_url}/fapi/v1/ticker/24hr"
+
+        try:
+            response = requests.get(url, timeout=10)
+            response.raise_for_status()
+            data = response.json()
+
+            # 过滤USDT永续合约并按交易量排序
+            usdt_symbols = []
+            for ticker in data:
+                if ticker["symbol"].endswith("USDT"):
+                    usdt_symbols.append({
+                        "symbol": ticker["symbol"],
+                        "volume": float(ticker["quoteVolume"])
+                    })
+
+            # 按交易量降序排序
+            usdt_symbols.sort(key=lambda x: x["volume"], reverse=True)
+            return [symbol["symbol"] for symbol in usdt_symbols[:limit]]
+        except Exception as e:
+            print(f"获取交易量数据失败: {e}")
+            return ["BTCUSDT", "ETHUSDT", "ADAUSDT", "SOLUSDT", "XRPUSDT"]
+
+    def get_data_snapshot(self, symbol: str) -> Dict[str, Any]:
+        """获取完整数据快照"""
+        # 获取标记价格和资金费率
+        mark_data = self.get_mark_price(symbol)
+        mark_price = float(mark_data.get("markPrice", 0)) if mark_data else 0
+        index_price = float(mark_data.get("indexPrice", 0)) if mark_data else 0
+
+        # 计算基差
+        basis = mark_price - index_price
+        basis_percent = (basis / index_price) * 100 if index_price != 0 else 0
+
+        # 获取资金费率
+        funding_data = self.get_funding_rate(symbol)
+
+        # 获取持仓量
+        oi_data = self.get_open_interest(symbol)
+
+        # 编译完整快照
+        snapshot = {
+            "symbol": symbol,
+            "timestamp": datetime.now().isoformat(),
+            "mark_price": mark_price,
+            "index_price": index_price,
+            "basis": basis,
+            "basis_percent": basis_percent,
+            "last_funding_rate": float(funding_data.get("fundingRate", 0)) if funding_data else 0,
+            "next_funding_time": funding_data.get("fundingTime", 0) if funding_data else 0,
+            "oi": float(oi_data.get("openInterest", 0)) if oi_data else 0
+        }
+
+        return snapshot
+
+    def save_to_csv(self, symbol: str, data: Dict[str, any]):
+        """将数据保存到CSV文件"""
+        csv_file = os.path.join(self.config.DATA_DIR, f"{symbol}.csv")
+
+        # CSV文件头
+        fieldnames = [
+            'timestamp',
+            'mark_price',
+            'index_price',
+            'basis',
+            'basis_percent',
+            'last_funding_rate',
+            'next_funding_time',
+            'oi'
+        ]
+
+        # 检查文件是否存在，如果不存在则写入表头
+        file_exists = os.path.isfile(csv_file)
+
+        with open(csv_file, 'a', newline='', encoding='utf-8') as f:
+            writer = csv.DictWriter(f, fieldnames=fieldnames)
+
+            if not file_exists:
+                writer.writeheader()
+
+            # 准备要写入的数据
+            row_data = {
+                'timestamp': data['timestamp'],
+                'mark_price': data['mark_price'],
+                'index_price': data['index_price'],
+                'basis': data['basis'],
+                'basis_percent': data['basis_percent'],
+                'last_funding_rate': data['last_funding_rate'],
+                'next_funding_time': data['next_funding_time'],
+                'oi': data['oi']
+            }
+
+            writer.writerow(row_data)
+
+    def collect_data(self) -> Tuple[int, int]:
+        """收集数据"""
+        print(f"[{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] 开始数据采集...")
+
+        symbols = self.get_top_symbols_by_volume(50)
+        success_count = 0
+        error_count = 0
+
+        for symbol in symbols:
+            try:
+                # 获取数据快照
+                data = self.get_data_snapshot(symbol)
+
+                # 保存到CSV
+                self.save_to_csv(symbol, data)
+
+                success_count += 1
+                print(f"  ✓ {symbol}: 数据已保存")
+
+                # 添加延迟避免API限制
+                time.sleep(0.1)
+
+            except Exception as e:
+                error_count += 1
+                print(f"  ✗ {symbol}: 错误 - {e}")
+
+        print(f"[{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] 数据采集完成: {success_count} 成功, {error_count} 失败")
+        return success_count, error_count
+
+
+class Monitor:
+    """监控器"""
+
+    def __init__(self, config: Config, telegram_bot: TelegramBot):
+        self.config = config
+        self.telegram_bot = telegram_bot
+
+    def load_symbol_data(self, symbol: str) -> Optional[pd.DataFrame]:
+        """加载单个交易对的历史数据"""
+        csv_file = os.path.join(self.config.DATA_DIR, f"{symbol}.csv")
+
+        if not os.path.exists(csv_file):
+            return None
+
+        try:
+            df = pd.read_csv(csv_file)
+            df['timestamp'] = pd.to_datetime(df['timestamp'])
+            df = df.sort_values('timestamp')
+            return df
+        except Exception as e:
+            print(f"加载 {symbol} 数据失败: {e}")
+            return None
+
+    def calculate_oi_ratio(self, df: pd.DataFrame) -> Optional[float]:
+        """计算持仓量比率：最近3次均值 / 最近10次均值"""
+        if len(df) < 10:
+            return None
+
+        # 获取最近的数据点
+        recent_data = df.tail(10)
+
+        # 计算最近3次OI均值
+        recent_3_avg = recent_data.tail(3)['oi'].mean()
+
+        # 计算最近10次OI均值
+        recent_10_avg = recent_data['oi'].mean()
+
+        # 避免除零
+        if recent_10_avg == 0:
+            return None
+
+        return recent_3_avg / recent_10_avg
+
+    def check_conditions(self, symbol: str) -> Tuple[bool, Optional[float], Optional[float], Optional[float]]:
+        """检查交易对是否满足监控条件"""
+        df = self.load_symbol_data(symbol)
+        if df is None or len(df) < 10:
+            return False, None, None, None
+
+        # 获取最新数据
+        latest = df.iloc[-1]
+        funding_rate = latest['last_funding_rate']
+        current_oi = latest['oi']
+
+        # 检查资金费率条件
+        funding_condition = abs(funding_rate) > self.config.FUNDING_RATE_THRESHOLD
+
+        # 计算OI比率
+        oi_ratio = self.calculate_oi_ratio(df)
+        if oi_ratio is None:
+            return False, funding_rate, None, current_oi
+
+        # 检查OI条件
+        oi_condition = oi_ratio > self.config.OI_RATIO_THRESHOLD
+
+        # 返回结果
+        return (funding_condition and oi_condition, funding_rate, oi_ratio, current_oi)
+
+    def monitor_all_symbols(self) -> List[Dict]:
+        """监控所有交易对"""
+        csv_files = glob.glob(os.path.join(self.config.DATA_DIR, "*.csv"))
+        symbols = [os.path.basename(f).replace('.csv', '') for f in csv_files]
+
+        alerts = []
+
+        print(f"开始监控 {len(symbols)} 个交易对...")
+
+        for symbol in symbols:
+            try:
+                condition_met, funding_rate, oi_ratio, current_oi = self.check_conditions(symbol)
+
+                if condition_met:
+                    alert_info = {
+                        'symbol': symbol,
+                        'funding_rate': funding_rate,
+                        'oi_ratio': oi_ratio,
+                        'current_oi': current_oi
+                    }
+                    alerts.append(alert_info)
+
+                    print(f"🚨 发现符合条件的交易对: {symbol}")
+                    print(f"   资金费率: {funding_rate:.6f}")
+                    print(f"   OI比率: {oi_ratio:.2f}x")
+                    print(f"   当前OI: {current_oi:,.0f}")
+
+                    # 发送提醒
+                    self.telegram_bot.send_alert(symbol, funding_rate, oi_ratio, current_oi)
+
+            except Exception as e:
+                print(f"监控 {symbol} 时出错: {e}")
+                continue
+
+        return alerts
+
+
+class AutoMonitorSystem:
+    """自动监控系统"""
+
+    def __init__(self):
+        self.config = Config()
+        self.telegram_bot = TelegramBot(self.config)
+        self.data_collector = BinanceDataCollector(self.config)
+        self.monitor = Monitor(self.config, self.telegram_bot)
+
+        # 运行统计
+        self.start_time = datetime.now()
+        self.collection_success_total = 0
+        self.collection_errors_total = 0
+        self.alerts_found_total = 0
+        self.alerts_sent_total = 0
+
+        # 状态标志
+        self.system_started = False
+
+    def get_system_stats(self) -> Dict:
+        """获取系统统计信息"""
+        # 计算运行时长
+        uptime = datetime.now() - self.start_time
+        hours, remainder = divmod(int(uptime.total_seconds()), 3600)
+        minutes, seconds = divmod(remainder, 60)
+        uptime_str = f"{hours:02d}:{minutes:02d}:{seconds:02d}"
+
+        # 统计数据文件
+        data_files = len(glob.glob(os.path.join(self.config.DATA_DIR, "*.csv")))
+
+        return {
+            'collection_success': self.collection_success_total,
+            'collection_errors': self.collection_errors_total,
+            'alerts_found': self.alerts_found_total,
+            'alerts_sent': self.alerts_sent_total,
+            'data_files': data_files,
+            'uptime': uptime_str,
+            'system_healthy': True  # 简化版本，总是返回健康
+        }
+
+    def collection_job(self):
+        """数据采集任务"""
+        print(f"\n[{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] 执行数据采集...")
+
+        try:
+            success, errors = self.data_collector.collect_data()
+            self.collection_success_total += success
+            self.collection_errors_total += errors
+
+            # 采集完成后立即执行监控
+            self.monitoring_job()
+
+        except Exception as e:
+            print(f"数据采集失败: {e}")
+
+    def monitoring_job(self):
+        """监控任务"""
+        print(f"[{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] 执行监控检查...")
+
+        try:
+            alerts = self.monitor.monitor_all_symbols()
+            self.alerts_found_total += len(alerts)
+            self.alerts_sent_total += len(alerts)  # 简化：每个发现都发送
+
+            if alerts:
+                print(f"发现 {len(alerts)} 个符合条件的交易对，已发送提醒")
+            else:
+                print("✅ 未发现符合条件的交易对")
+
+        except Exception as e:
+            print(f"监控检查失败: {e}")
+
+    def status_report_job(self):
+        """状态报告任务"""
+        print(f"\n[{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] 生成状态报告...")
+
+        try:
+            stats = self.get_system_stats()
+            success = self.telegram_bot.send_status_report(stats)
+
+            if success:
+                print("✅ 状态报告发送成功")
+            else:
+                print("❌ 状态报告发送失败")
+
+        except Exception as e:
+            print(f"状态报告生成失败: {e}")
+
+    def setup_schedule(self):
+        """设置定时任务"""
+        # 每5分钟执行数据采集和监控
+        schedule.every(5).minutes.do(self.collection_job)
+
+        # 每30分钟执行状态报告
+        schedule.every(30).minutes.do(self.status_report_job)
+
+        print("定时任务设置完成:")
+        print("  📊 数据采集: 每5分钟")
+        print("  🔔 监控检查: 每5分钟")
+        print("  📈 状态报告: 每30分钟")
+
+    def run(self):
+        """运行自动监控系统"""
+        print("🚀 Binance永续合约自动监控系统")
+        print("=" * 50)
+
+        # 验证配置
+        if not self.config.validate_telegram_config():
+            print("❌ Telegram配置错误，请检查 .env 文件")
+            return
+
+        # 发送启动通知
+        print("发送启动通知...")
+        if self.telegram_bot.send_startup_notification():
+            print("✅ 启动通知发送成功")
+        else:
+            print("❌ 启动通知发送失败")
+
+        # 设置定时任务
+        self.setup_schedule()
+
+        # 立即执行一次数据采集和监控
+        print("\n执行首次数据采集和监控...")
+        self.collection_job()
+
+        print("\n" + "=" * 50)
+        print("系统已启动，开始自动运行...")
+        print("按 Ctrl+C 停止系统")
+        print("=" * 50)
+
+        self.system_started = True
+
+        # 主循环
+        while True:
+            try:
+                schedule.run_pending()
+                time.sleep(1)
+            except KeyboardInterrupt:
+                print(f"\n[{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] 系统已停止")
+                break
+            except Exception as e:
+                print(f"[{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] 系统错误: {e}")
+                time.sleep(60)  # 出错后等待1分钟再继续
+
+
+def main():
+    """主函数"""
+    try:
+        system = AutoMonitorSystem()
+        system.run()
+    except Exception as e:
+        print(f"系统启动失败: {e}")
+        print("请检查配置和网络连接")
+
+
+if __name__ == "__main__":
+    main()

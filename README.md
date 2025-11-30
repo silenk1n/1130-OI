@@ -4,11 +4,13 @@
 
 ## 🚀 新版本更新
 
-**融合版本已发布！** `binance_oi_monitor.py` 现在包含所有核心功能：
-- ✅ 数据采集
-- ✅ 数据分析
-- ✅ 定时调度
-- ✅ 交互式菜单
+**自动化版本已发布！** `binance_monitor_auto.py` 现在包含所有功能：
+- ✅ 一键启动，完全自动化
+- ✅ 自动数据采集（每5分钟）
+- ✅ 自动监控分析（每5分钟）
+- ✅ 自动推送提醒（满足条件时）
+- ✅ 运行状态报告（每30分钟）
+- ✅ 启动成功通知（首次运行）
 
 ## 功能特性
 
@@ -33,6 +35,22 @@
 - **主动买卖比 (Taker Buy/Sell Ratio)** - 主动买入卖出比例
 
 ## 核心程序文件
+
+### 🎯 自动化版本主程序
+
+**`binance_monitor_auto.py`** - 自动化版本主程序，一键启动所有功能
+
+**功能:**
+- 自动数据采集（每5分钟）
+- 自动监控分析（每5分钟）
+- 自动推送提醒（满足条件时）
+- 运行状态报告（每30分钟）
+- 启动成功通知（首次运行）
+
+**使用方法:**
+```bash
+python3 binance_monitor_auto.py
+```
 
 ### 🎯 融合版本主程序
 
@@ -106,7 +124,7 @@ python3 binance_oi_monitor.py
 - 创建虚拟环境
 - 安装依赖包
 - 创建数据目录
-- 启动融合版本主程序
+- 启动**自动化监控系统**
 
 ### 📦 手动安装
 
@@ -117,7 +135,7 @@ source venv/bin/activate
 pip install -r requirements.txt
 ```
 
-2. **配置Telegram Bot（可选，用于监控提醒）：**
+2. **配置Telegram Bot（必需，用于监控提醒和状态报告）：**
 ```bash
 # 复制配置文件
 cp .env.example .env
@@ -129,7 +147,12 @@ cp .env.example .env
 
 3. **运行程序：**
 
-**融合版本（推荐）：**
+**自动化版本（强烈推荐）：**
+```bash
+python3 binance_monitor_auto.py
+```
+
+**融合版本（交互式）：**
 ```bash
 python3 binance_oi_monitor.py
 ```
@@ -153,6 +176,31 @@ python3 setup.py
 ```
 
 ## 🔔 监控系统
+
+### 自动化版本功能
+
+**`binance_monitor_auto.py`** 提供完全自动化的监控体验：
+
+1. **启动成功通知**
+   - 系统启动后立即发送Telegram通知
+   - 包含系统状态和运行计划
+
+2. **自动数据采集**
+   - 每5分钟采集50个交易量最大的交易对
+   - 自动保存到CSV文件
+
+3. **自动监控分析**
+   - 每5分钟检查所有交易对
+   - 自动发现符合条件的交易对
+
+4. **自动推送提醒**
+   - 发现异常时立即发送Telegram提醒
+   - 包含详细的分析数据
+
+5. **运行状态报告**
+   - 每30分钟发送系统运行状态
+   - 包含采集统计、监控统计、运行时长
+   - **与监控提醒完全独立**
 
 ### 监控条件
 
@@ -360,6 +408,7 @@ python-dotenv>=0.19.0
 
 ```
 binance_oi_monitor/
+├── binance_monitor_auto.py    # 🆕 自动化版本主程序（推荐）
 ├── binance_oi_monitor.py      # 融合版本主程序
 ├── data_collector.py          # 数据采集器
 ├── monitor.py                 # 资金费率监控
@@ -377,7 +426,9 @@ binance_oi_monitor/
 ├── .env.example               # 环境变量示例
 ├── data/                      # 数据目录
 ├── charts/                    # 图表目录
-└── README.md                  # 说明文档
+├── README.md                  # 说明文档
+├── USAGE_GUIDE.md             # 使用指南
+└── QUICK_START.md             # 快速开始
 ```
 
 ## ⚠️ 免责声明
