@@ -43,6 +43,7 @@ class Config:
         # 监控阈值
         self.FUNDING_RATE_THRESHOLD = float(os.getenv('FUNDING_RATE_THRESHOLD', '0.001'))  # 0.1%
         self.OI_RATIO_THRESHOLD = float(os.getenv('OI_RATIO_THRESHOLD', '2.0'))  # 2x
+        self.MARKET_CAP_THRESHOLD = float(os.getenv('MARKET_CAP_THRESHOLD', '100000000'))  # 1亿美元
 
         # 确保目录存在
         os.makedirs(self.DATA_DIR, exist_ok=True)
@@ -112,15 +113,35 @@ class TelegramBot:
         )
         return self.send_message(message)
 
-    def send_alert(self, symbol: str, funding_rate: float, oi_ratio: float, current_oi: float) -> bool:
+    def send_alert(self, symbol: str, funding_rate: float, oi_ratio: float, current_oi: float, market_cap: Optional[float] = None) -> bool:
         """发送监控提醒"""
         funding_rate_pct = funding_rate * 100
+
+        # 构建市值信息
+        market_cap_info = ""
+        if market_cap is not None:
+            if market_cap >= 1000000000:  # 超过10亿美元
+                market_cap_str = f"${market_cap/1000000000:.2f}B"
+            elif market_cap >= 1000000:   # 超过100万美元
+                market_cap_str = f"${market_cap/1000000:.2f}M"
+            else:
+                market_cap_str = f"${market_cap:,.0f}"
+
+            market_cap_info = f"\n💰 市值：{market_cap_str}"
+
+            # 添加市值分类说明
+            if market_cap < 100000000:  # 小于1亿美元
+                market_cap_info += " (小市值币种 - 满足任一条件触发)"
+            else:
+                market_cap_info += " (大市值币种 - 需同时满足两个条件)"
+
         message = (
             "🚨 <b>监控提醒：发现异常交易对</b>\n\n"
             f"💰 交易对：<code>{symbol}</code>\n"
             f"📊 资金费率：{funding_rate_pct:.4f}%\n"
             f"📈 持仓量比率：{oi_ratio:.2f}x\n"
-            f"📦 当前持仓量：{current_oi:,.0f}\n\n"
+            f"📦 当前持仓量：{current_oi:,.0f}"
+            f"{market_cap_info}\n\n"
             f"⏰ 发现时间：{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n"
             "💡 建议：关注资金费率变化和持仓量趋势"
         )
@@ -197,6 +218,54 @@ class BinanceDataCollector:
             print(f"获取交易对信息失败: {e}")
             # 返回一些主要交易对作为备用
             return ["BTCUSDT", "ETHUSDT", "BNBUSDT", "ADAUSDT", "SOLUSDT", "XRPUSDT", "DOTUSDT", "DOGEUSDT", "AVAXUSDT", "MATICUSDT"]
+
+    def get_market_cap(self, symbol: str) -> Optional[float]:
+        """获取币种市值（美元）
+        注意：这是一个简化实现，实际使用时需要更准确的市值数据源
+        """
+        # 从交易对中提取基础币种
+        base_asset = symbol.replace("USDT", "")
+
+        # 这里使用一个简化的市值估算方法
+        # 实际生产环境中应该使用专业的市值数据API
+        try:
+            # 获取现货价格
+            spot_url = "https://api.binance.com/api/v3/ticker/price"
+            params = {"symbol": symbol}
+            response = requests.get(spot_url, params=params, timeout=5)
+
+            if response.status_code == 200:
+                price_data = response.json()
+                price = float(price_data['price'])
+
+                # 简化的流通量估算（实际应该从专业API获取）
+                # 这里使用一个预设的流通量映射
+                supply_map = {
+                    "BTC": 19500000,   # 比特币流通量
+                    "ETH": 120000000,  # 以太坊流通量
+                    "BNB": 150000000,  # BNB流通量
+                    "ADA": 35000000000, # Cardano流通量
+                    "SOL": 400000000,  # Solana流通量
+                    "XRP": 54000000000, # XRP流通量
+                    "DOT": 1200000000, # Polkadot流通量
+                    "DOGE": 140000000000, # Dogecoin流通量
+                    "AVAX": 360000000, # Avalanche流通量
+                    "MATIC": 10000000000, # Polygon流通量
+                }
+
+                # 如果币种在映射中，计算市值
+                if base_asset in supply_map:
+                    market_cap = price * supply_map[base_asset]
+                    return market_cap
+                else:
+                    # 对于不在映射中的币种，返回None表示未知
+                    return None
+
+        except Exception as e:
+            print(f"获取 {symbol} 市值失败: {e}")
+            return None
+
+        return None
 
     def get_data_snapshot(self, symbol: str) -> Dict[str, Any]:
         """获取完整数据快照"""
@@ -345,11 +414,11 @@ class Monitor:
 
         return recent_3_avg / recent_10_avg
 
-    def check_conditions(self, symbol: str) -> Tuple[bool, Optional[float], Optional[float], Optional[float]]:
+    def check_conditions(self, symbol: str) -> Tuple[bool, Optional[float], Optional[float], Optional[float], Optional[float]]:
         """检查交易对是否满足监控条件"""
         df = self.load_symbol_data(symbol)
         if df is None or len(df) < 10:
-            return False, None, None, None
+            return False, None, None, None, None
 
         # 获取最新数据
         latest = df.iloc[-1]
@@ -362,13 +431,26 @@ class Monitor:
         # 计算OI比率
         oi_ratio = self.calculate_oi_ratio(df)
         if oi_ratio is None:
-            return False, funding_rate, None, current_oi
+            return False, funding_rate, None, current_oi, None
 
         # 检查OI条件
         oi_condition = oi_ratio > self.config.OI_RATIO_THRESHOLD
 
+        # 获取市值
+        market_cap = self.data_collector.get_market_cap(symbol)
+
+        # 判断条件：
+        # 1. 对于市值 >= 1亿美元的交易对：需要同时满足资金费率和OI条件
+        # 2. 对于市值 < 1亿美元的交易对：满足资金费率或OI条件之一即可
+        if market_cap is not None and market_cap < self.config.MARKET_CAP_THRESHOLD:
+            # 小市值币种：满足任一条件即可
+            condition_met = funding_condition or oi_condition
+        else:
+            # 大市值币种：需要同时满足两个条件
+            condition_met = funding_condition and oi_condition
+
         # 返回结果
-        return (funding_condition and oi_condition, funding_rate, oi_ratio, current_oi)
+        return (condition_met, funding_rate, oi_ratio, current_oi, market_cap)
 
     def monitor_all_symbols(self) -> List[Dict]:
         """监控所有交易对"""
@@ -381,14 +463,15 @@ class Monitor:
 
         for symbol in symbols:
             try:
-                condition_met, funding_rate, oi_ratio, current_oi = self.check_conditions(symbol)
+                condition_met, funding_rate, oi_ratio, current_oi, market_cap = self.check_conditions(symbol)
 
                 if condition_met:
                     alert_info = {
                         'symbol': symbol,
                         'funding_rate': funding_rate,
                         'oi_ratio': oi_ratio,
-                        'current_oi': current_oi
+                        'current_oi': current_oi,
+                        'market_cap': market_cap
                     }
                     alerts.append(alert_info)
 
@@ -396,9 +479,11 @@ class Monitor:
                     print(f"   资金费率: {funding_rate:.6f}")
                     print(f"   OI比率: {oi_ratio:.2f}x")
                     print(f"   当前OI: {current_oi:,.0f}")
+                    if market_cap:
+                        print(f"   市值: ${market_cap:,.0f}")
 
                     # 发送提醒
-                    self.telegram_bot.send_alert(symbol, funding_rate, oi_ratio, current_oi)
+                    self.telegram_bot.send_alert(symbol, funding_rate, oi_ratio, current_oi, market_cap)
 
             except Exception as e:
                 print(f"监控 {symbol} 时出错: {e}")
