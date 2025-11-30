@@ -87,11 +87,11 @@ class TelegramBot:
         message = (
             "🚀 <b>Binance永续合约监控系统已启动</b>\n\n"
             "✅ 系统状态：运行中\n"
-            "📊 数据采集：每5分钟\n"
+            "📊 数据采集：每5分钟（所有USDT永续合约）\n"
             "🔔 监控提醒：实时推送\n"
             "📈 状态报告：每30分钟\n\n"
             f"启动时间：{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n"
-            "系统将持续监控资金费率和持仓量变化"
+            "系统将持续监控所有USDT永续合约的资金费率和持仓量变化"
         )
         return self.send_message(message)
 
@@ -103,6 +103,9 @@ class TelegramBot:
             f"📈 数据采集：{stats['collection_success']} 成功, {stats['collection_errors']} 失败\n"
             f"🔔 监控提醒：{stats['alerts_found']} 发现, {stats['alerts_sent']} 发送\n"
             f"💾 数据文件：{stats['data_files']} 个\n"
+            f"📦 数据大小：{stats['data_size']}\n"
+            f"🧹 上次清理：{stats['last_cleanup_time']}\n"
+            f"💰 监控交易对：{stats['total_symbols']} 个\n"
             f"🔄 运行时长：{stats['uptime']}\n"
             f"📡 系统状态：{'✅ 正常' if stats['system_healthy'] else '⚠️ 异常'}\n\n"
             "下次报告：30分钟后"
@@ -172,30 +175,28 @@ class BinanceDataCollector:
             print(f"获取 {symbol} 资金费率失败: {e}")
             return {}
 
-    def get_top_symbols_by_volume(self, limit: int = 50) -> List[str]:
-        """获取按24小时交易量排序的前N个交易对"""
-        url = f"{self.base_url}/fapi/v1/ticker/24hr"
+    def get_all_usdt_perpetual_symbols(self) -> List[str]:
+        """获取所有USDT永续合约交易对"""
+        url = f"{self.base_url}/fapi/v1/exchangeInfo"
 
         try:
             response = requests.get(url, timeout=10)
             response.raise_for_status()
             data = response.json()
 
-            # 过滤USDT永续合约并按交易量排序
             usdt_symbols = []
-            for ticker in data:
-                if ticker["symbol"].endswith("USDT"):
-                    usdt_symbols.append({
-                        "symbol": ticker["symbol"],
-                        "volume": float(ticker["quoteVolume"])
-                    })
+            for symbol_info in data["symbols"]:
+                if (symbol_info["quoteAsset"] == "USDT" and
+                    symbol_info["contractType"] == "PERPETUAL" and
+                    symbol_info["status"] == "TRADING"):
+                    usdt_symbols.append(symbol_info["symbol"])
 
-            # 按交易量降序排序
-            usdt_symbols.sort(key=lambda x: x["volume"], reverse=True)
-            return [symbol["symbol"] for symbol in usdt_symbols[:limit]]
+            print(f"获取到 {len(usdt_symbols)} 个USDT永续合约交易对")
+            return sorted(usdt_symbols)
         except Exception as e:
-            print(f"获取交易量数据失败: {e}")
-            return ["BTCUSDT", "ETHUSDT", "ADAUSDT", "SOLUSDT", "XRPUSDT"]
+            print(f"获取交易对信息失败: {e}")
+            # 返回一些主要交易对作为备用
+            return ["BTCUSDT", "ETHUSDT", "BNBUSDT", "ADAUSDT", "SOLUSDT", "XRPUSDT", "DOTUSDT", "DOGEUSDT", "AVAXUSDT", "MATICUSDT"]
 
     def get_data_snapshot(self, symbol: str) -> Dict[str, Any]:
         """获取完整数据快照"""
@@ -272,11 +273,13 @@ class BinanceDataCollector:
         """收集数据"""
         print(f"[{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] 开始数据采集...")
 
-        symbols = self.get_top_symbols_by_volume(50)
+        symbols = self.get_all_usdt_perpetual_symbols()
         success_count = 0
         error_count = 0
 
-        for symbol in symbols:
+        print(f"开始采集 {len(symbols)} 个交易对的数据...")
+
+        for i, symbol in enumerate(symbols, 1):
             try:
                 # 获取数据快照
                 data = self.get_data_snapshot(symbol)
@@ -285,7 +288,8 @@ class BinanceDataCollector:
                 self.save_to_csv(symbol, data)
 
                 success_count += 1
-                print(f"  ✓ {symbol}: 数据已保存")
+                if i % 20 == 0 or i == len(symbols):
+                    print(f"  [{i}/{len(symbols)}] ✓ {symbol}: 数据已保存")
 
                 # 添加延迟避免API限制
                 time.sleep(0.1)
@@ -419,8 +423,112 @@ class AutoMonitorSystem:
         self.alerts_found_total = 0
         self.alerts_sent_total = 0
 
+        # 文件管理
+        self.data_size_threshold = 800 * 1024 * 1024  # 800MB
+        self.last_cleanup_time = None
+
         # 状态标志
         self.system_started = False
+
+    def calculate_data_size(self) -> int:
+        """计算数据目录总大小（字节）"""
+        total_size = 0
+        for file_path in glob.glob(os.path.join(self.config.DATA_DIR, "*.csv")):
+            try:
+                total_size += os.path.getsize(file_path)
+            except OSError:
+                continue
+        return total_size
+
+    def format_file_size(self, size_bytes: int) -> str:
+        """格式化文件大小"""
+        for unit in ['B', 'KB', 'MB', 'GB']:
+            if size_bytes < 1024.0:
+                return f"{size_bytes:.2f} {unit}"
+            size_bytes /= 1024.0
+        return f"{size_bytes:.2f} TB"
+
+    def cleanup_old_data(self) -> Dict[str, any]:
+        """清理旧数据，保留最近的数据"""
+        print(f"[{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] 开始数据清理...")
+
+        csv_files = glob.glob(os.path.join(self.config.DATA_DIR, "*.csv"))
+        files_processed = 0
+        files_cleaned = 0
+        total_rows_removed = 0
+
+        for csv_file in csv_files:
+            try:
+                # 读取CSV文件
+                df = pd.read_csv(csv_file)
+                original_rows = len(df)
+
+                if original_rows <= 1000:  # 如果数据量不大，跳过清理
+                    files_processed += 1
+                    continue
+
+                # 保留最近1000行数据
+                df_cleaned = df.tail(1000)
+                rows_removed = original_rows - len(df_cleaned)
+
+                if rows_removed > 0:
+                    # 保存清理后的数据
+                    df_cleaned.to_csv(csv_file, index=False)
+                    files_cleaned += 1
+                    total_rows_removed += rows_removed
+                    print(f"  ✓ {os.path.basename(csv_file)}: 保留 {len(df_cleaned)} 行，删除 {rows_removed} 行")
+
+                files_processed += 1
+
+            except Exception as e:
+                print(f"  ✗ {os.path.basename(csv_file)}: 清理失败 - {e}")
+                continue
+
+        self.last_cleanup_time = datetime.now()
+
+        result = {
+            'files_processed': files_processed,
+            'files_cleaned': files_cleaned,
+            'total_rows_removed': total_rows_removed,
+            'cleanup_time': self.last_cleanup_time.strftime('%Y-%m-%d %H:%M:%S')
+        }
+
+        print(f"数据清理完成: 处理 {files_processed} 个文件，清理 {files_cleaned} 个文件，删除 {total_rows_removed} 行数据")
+        return result
+
+    def check_and_cleanup_data(self) -> Optional[Dict[str, any]]:
+        """检查数据大小并执行清理"""
+        current_size = self.calculate_data_size()
+
+        if current_size >= self.data_size_threshold:
+            print(f"数据大小 {self.format_file_size(current_size)} 超过阈值 {self.format_file_size(self.data_size_threshold)}，执行清理...")
+
+            # 发送清理通知
+            self.telegram_bot.send_message(
+                f"🧹 <b>数据清理通知</b>\n\n"
+                f"数据目录大小已达到 {self.format_file_size(current_size)}，\n"
+                f"超过阈值 {self.format_file_size(self.data_size_threshold)}，\n"
+                f"正在执行自动清理..."
+            )
+
+            # 执行清理
+            cleanup_result = self.cleanup_old_data()
+
+            # 发送清理完成通知
+            new_size = self.calculate_data_size()
+            self.telegram_bot.send_message(
+                f"✅ <b>数据清理完成</b>\n\n"
+                f"处理文件: {cleanup_result['files_processed']} 个\n"
+                f"清理文件: {cleanup_result['files_cleaned']} 个\n"
+                f"删除数据行: {cleanup_result['total_rows_removed']} 行\n"
+                f"清理前大小: {self.format_file_size(current_size)}\n"
+                f"清理后大小: {self.format_file_size(new_size)}\n"
+                f"清理时间: {cleanup_result['cleanup_time']}"
+            )
+
+            return cleanup_result
+
+        return None
 
     def get_system_stats(self) -> Dict:
         """获取系统统计信息"""
@@ -433,14 +541,25 @@ class AutoMonitorSystem:
         # 统计数据文件
         data_files = len(glob.glob(os.path.join(self.config.DATA_DIR, "*.csv")))
 
+        # 计算数据大小
+        data_size = self.calculate_data_size()
+        data_size_str = self.format_file_size(data_size)
+
+        # 获取总交易对数量
+        total_symbols = len(self.data_collector.get_all_usdt_perpetual_symbols())
+
         return {
             'collection_success': self.collection_success_total,
             'collection_errors': self.collection_errors_total,
             'alerts_found': self.alerts_found_total,
             'alerts_sent': self.alerts_sent_total,
             'data_files': data_files,
+            'data_size': data_size_str,
+            'data_size_bytes': data_size,
+            'total_symbols': total_symbols,
             'uptime': uptime_str,
-            'system_healthy': True  # 简化版本，总是返回健康
+            'system_healthy': True,
+            'last_cleanup_time': self.last_cleanup_time.strftime('%Y-%m-%d %H:%M:%S') if self.last_cleanup_time else '从未清理'
         }
 
     def collection_job(self):
@@ -451,6 +570,9 @@ class AutoMonitorSystem:
             success, errors = self.data_collector.collect_data()
             self.collection_success_total += success
             self.collection_errors_total += errors
+
+            # 检查并执行数据清理（如果需要）
+            self.check_and_cleanup_data()
 
             # 采集完成后立即执行监控
             self.monitoring_job()
@@ -500,7 +622,7 @@ class AutoMonitorSystem:
         schedule.every(30).minutes.do(self.status_report_job)
 
         print("定时任务设置完成:")
-        print("  📊 数据采集: 每5分钟")
+        print("  📊 数据采集: 每5分钟（所有USDT永续合约）")
         print("  🔔 监控检查: 每5分钟")
         print("  📈 状态报告: 每30分钟")
 
