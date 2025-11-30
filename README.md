@@ -216,13 +216,15 @@ python3 setup.py
    - `最近3次OI均值 / 最近10次OI均值 > 2`
 
 #### 小市值币种（市值 < 1亿美元）
-满足**任一条件**即可触发监控：
+只需要满足**资金费率条件**即可触发监控：
 
 1. **资金费率条件**: 资金费率绝对值 > 0.1%
    - `|last_funding_rate| > 0.001`
 
-2. **持仓量条件**: 短期持仓量激增
-   - `最近3次OI均值 / 最近10次OI均值 > 2`
+#### 市值未知币种
+默认按**小市值币种**处理，只需要满足资金费率条件
+
+**注意**: 大市值币种需要至少10个数据点才能计算持仓量比率，小市值币种只需要有数据即可触发监控
 
 ### 📱 Telegram Bot配置
 
@@ -432,15 +434,18 @@ binance_oi_monitor/
 ├── setup.py                   # 配置设置
 ├── binance_data_snapshot.py   # 数据快照
 ├── binance_symbols.py         # 交易对管理
-├── start_collector.sh         # 启动脚本
-├── binance-monitor.service    # systemd服务文件
+├── monitor_scheduler.py       # 监控调度器
+├── monitor_service.py         # 监控服务
 ├── requirements.txt           # 依赖包列表
 ├── .env.example               # 环境变量示例
+├── .gitignore                 # Git忽略文件
+├── .gitattributes             # Git属性配置
 ├── data/                      # 数据目录
 ├── charts/                    # 图表目录
 ├── README.md                  # 说明文档
 ├── USAGE_GUIDE.md             # 使用指南
-└── QUICK_START.md             # 快速开始
+├── QUICK_START.md             # 快速开始
+└── PUSH_GUIDE.md              # 推送指南
 ```
 
 ## ⚠️ 免责声明
@@ -451,4 +456,11 @@ binance_oi_monitor/
 
 **项目维护者**: [你的名字]
 **最后更新**: 2025-11-30
-**版本**: v2.0 (融合版本)
+**版本**: v2.1 (智能市值监控版本)
+
+**更新日志**:
+- ✅ 新增智能市值监控逻辑
+- ✅ 大市值币种：需要同时满足资金费率和持仓量条件
+- ✅ 小市值币种：只需要满足资金费率条件
+- ✅ 市值未知币种：默认按小市值币种处理
+- ✅ 优化监控触发机制，提高小市值币种响应速度

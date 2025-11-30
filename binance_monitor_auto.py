@@ -374,9 +374,10 @@ class BinanceDataCollector:
 class Monitor:
     """监控器"""
 
-    def __init__(self, config: Config, telegram_bot: TelegramBot):
+    def __init__(self, config: Config, telegram_bot: TelegramBot, data_collector: BinanceDataCollector):
         self.config = config
         self.telegram_bot = telegram_bot
+        self.data_collector = data_collector
 
     def load_symbol_data(self, symbol: str) -> Optional[pd.DataFrame]:
         """加载单个交易对的历史数据"""
@@ -416,9 +417,14 @@ class Monitor:
 
     def check_conditions(self, symbol: str) -> Tuple[bool, Optional[float], Optional[float], Optional[float], Optional[float]]:
         """检查交易对是否满足监控条件"""
+        # 先获取市值
+        market_cap = self.data_collector.get_market_cap(symbol)
+
+        # 获取最新数据
         df = self.load_symbol_data(symbol)
-        if df is None or len(df) < 10:
-            return False, None, None, None, None
+        if df is None or len(df) == 0:
+            # 没有数据时，无法判断
+            return False, None, None, None, market_cap
 
         # 获取最新数据
         latest = df.iloc[-1]
@@ -428,26 +434,30 @@ class Monitor:
         # 检查资金费率条件
         funding_condition = abs(funding_rate) > self.config.FUNDING_RATE_THRESHOLD
 
-        # 计算OI比率
-        oi_ratio = self.calculate_oi_ratio(df)
-        if oi_ratio is None:
-            return False, funding_rate, None, current_oi, None
-
-        # 检查OI条件
-        oi_condition = oi_ratio > self.config.OI_RATIO_THRESHOLD
-
-        # 获取市值
-        market_cap = self.data_collector.get_market_cap(symbol)
-
         # 判断条件：
-        # 1. 对于市值 >= 1亿美元的交易对：需要同时满足资金费率和OI条件
-        # 2. 对于市值 < 1亿美元的交易对：满足资金费率或OI条件之一即可
-        if market_cap is not None and market_cap < self.config.MARKET_CAP_THRESHOLD:
-            # 小市值币种：满足任一条件即可
-            condition_met = funding_condition or oi_condition
+        # 1. 对于市值 < 1亿美元的交易对：只需要满足资金费率条件
+        # 2. 对于市值 >= 1亿美元的交易对：需要同时满足资金费率和持仓量条件
+        # 3. 对于市值未知的交易对：默认按小市值币种处理（只需要满足资金费率条件）
+        if market_cap is None or market_cap < self.config.MARKET_CAP_THRESHOLD:
+            # 小市值币种或市值未知币种：只需要满足资金费率条件
+            condition_met = funding_condition
+            oi_ratio = None  # 小市值币种不需要OI比率
         else:
-            # 大市值币种：需要同时满足两个条件
-            condition_met = funding_condition and oi_condition
+            # 大市值币种：需要同时满足资金费率和持仓量条件
+            # 检查是否有足够数据计算OI比率
+            if len(df) < 10:
+                # 数据不足，无法计算OI比率
+                condition_met = False
+                oi_ratio = None
+            else:
+                # 计算OI比率
+                oi_ratio = self.calculate_oi_ratio(df)
+                if oi_ratio is None:
+                    condition_met = False
+                else:
+                    # 检查OI条件
+                    oi_condition = oi_ratio > self.config.OI_RATIO_THRESHOLD
+                    condition_met = funding_condition and oi_condition
 
         # 返回结果
         return (condition_met, funding_rate, oi_ratio, current_oi, market_cap)
@@ -499,7 +509,7 @@ class AutoMonitorSystem:
         self.config = Config()
         self.telegram_bot = TelegramBot(self.config)
         self.data_collector = BinanceDataCollector(self.config)
-        self.monitor = Monitor(self.config, self.telegram_bot)
+        self.monitor = Monitor(self.config, self.telegram_bot, self.data_collector)
 
         # 运行统计
         self.start_time = datetime.now()
