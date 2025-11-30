@@ -2,10 +2,20 @@
 
 这是一个长期运行的Binance永续合约数据监控系统，每5分钟自动采集数据，每半小时生成分析报告。
 
+## 🚀 新版本更新
+
+**融合版本已发布！** `binance_oi_monitor.py` 现在包含所有核心功能：
+- ✅ 数据采集
+- ✅ 数据分析
+- ✅ 定时调度
+- ✅ 交互式菜单
+
 ## 功能特性
 
 - 📊 **自动数据采集**: 每5分钟采集50个交易量最大的USDT永续合约数据
 - 📈 **智能分析**: 每半小时生成价格、基差、资金费率、持仓量变化分析报告
+- 🔔 **智能监控**: 监控资金费率和持仓量变化，满足条件时发送Telegram提醒
+- 📊 **图表生成**: 自动为监控提醒生成分析图表
 - 🔄 **长期运行**: 支持后台运行和自动重启
 - 📝 **完整日志**: 详细的运行日志和错误记录
 - 🛡️ **稳定可靠**: 完善的错误处理和恢复机制
@@ -22,72 +32,114 @@
 - **大户持仓多空比 (Top Trader Position LS Ratio)** - 大户持仓多空比例
 - **主动买卖比 (Taker Buy/Sell Ratio)** - 主动买入卖出比例
 
-## Files
+## 核心程序文件
 
-### 1. `binance_data_snapshot.py`
-Main script for fetching data snapshots for individual symbols or multiple symbols.
+### 🎯 融合版本主程序
 
-**Usage:**
-```python
-from binance_data_snapshot import BinanceDataSnapshot
+**`binance_oi_monitor.py`** - 融合版本主程序，包含所有核心功能
 
-# Initialize
-snapshot = BinanceDataSnapshot()
+**功能:**
+- 单次数据采集
+- 数据分析报告
+- 定时数据采集调度
+- 交互式菜单系统
 
-# Get data for single symbol
-data = snapshot.get_data_snapshot("BTCUSDT")
-
-# Get data for multiple symbols
-symbols = ["BTCUSDT", "ETHUSDT", "ADAUSDT"]
-data = snapshot.get_multiple_symbols_snapshot(symbols)
-```
-
-### 2. `binance_symbols.py`
-Utility script to get available USDT perpetual trading pairs.
-
-**Usage:**
-```python
-from binance_symbols import get_usdt_perpetual_symbols, get_top_symbols_by_volume
-
-# Get all USDT perpetual symbols
-all_symbols = get_usdt_perpetual_symbols()
-
-# Get top symbols by 24h trading volume
-top_symbols = get_top_symbols_by_volume(20)
-```
-
-### 3. `data_analysis_example.py`
-Example script demonstrating data analysis and insights.
-
-**Usage:**
+**使用方法:**
 ```bash
-python3 data_analysis_example.py
+python3 binance_oi_monitor.py
 ```
+
+### 📊 独立功能模块
+
+**`data_collector.py`** - 数据采集器
+- 从Binance API获取永续合约数据
+- 保存到CSV文件
+
+**`monitor.py`** - 资金费率和持仓量监控系统
+- 监控资金费率 > 0.1%
+- 监控持仓量短期激增
+- 发送Telegram提醒
+
+**`telegram_bot.py`** - Telegram Bot推送功能
+- 发送监控提醒
+- 支持图片附件
+
+**`data_analyzer.py`** - 数据分析器
+- 生成24小时趋势报告
+- 分析价格、基差、资金费率、持仓量变化
+
+**`scheduler.py`** - 定时数据采集调度器
+- 每5分钟自动采集数据
+- 长期运行支持
+
+**`chart_generator.py`** - 图表生成器
+- 为监控提醒生成分析图表
+- 包含价格、基差、持仓量、资金费率图表
+
+### 🔧 工具和配置
+
+**`config.py`** - 配置管理
+- 加载环境变量和设置
+- 验证Telegram Bot配置
+
+**`setup.py`** - 交互式配置设置
+- 引导用户完成配置
+- 创建.env文件
+
+**`binance_data_snapshot.py`** - Binance数据快照获取
+- 获取单个或多个交易对数据快照
+
+**`binance_symbols.py`** - 交易对管理工具
+- 获取USDT永续合约交易对
+- 按交易量排序
 
 ## 安装和使用
 
-### 快速开始
+### 🚀 快速开始
 
-使用启动脚本（推荐）：
+**推荐方式 - 使用启动脚本：**
 ```bash
 ./start_collector.sh
 ```
 
-### 手动安装
+启动脚本会自动：
+- 创建虚拟环境
+- 安装依赖包
+- 创建数据目录
+- 启动融合版本主程序
 
-1. 创建虚拟环境并安装依赖：
+### 📦 手动安装
+
+1. **创建虚拟环境并安装依赖：**
 ```bash
 python3 -m venv venv
 source venv/bin/activate
-pip install pandas requests schedule
+pip install -r requirements.txt
 ```
 
-2. 运行脚本：
+2. **配置Telegram Bot（可选，用于监控提醒）：**
+```bash
+# 复制配置文件
+cp .env.example .env
+
+# 编辑 .env 文件，填入你的配置
+# TELEGRAM_BOT_TOKEN=你的Bot Token
+# TELEGRAM_CHAT_ID=你的Chat ID
+```
+
+3. **运行程序：**
+
+**融合版本（推荐）：**
+```bash
+python3 binance_oi_monitor.py
+```
+
+**独立功能模块：**
 ```bash
 # 单次数据采集
 python3 data_collector.py
 
-# 数据分析
+# 数据分析报告
 python3 data_analyzer.py
 
 # 定时采集（每5分钟）
@@ -96,18 +148,15 @@ python3 scheduler.py
 # 监控系统（需要Telegram配置）
 python3 monitor.py
 
-# 监控系统测试（无需Telegram）
-python3 monitor_test.py
-
-# 监控演示
-python3 monitor_demo.py
+# 配置设置
+python3 setup.py
 ```
 
-## 监控系统
+## 🔔 监控系统
 
 ### 监控条件
 
-系统会监控以下条件，当同时满足时发送Telegram提醒：
+系统会监控以下条件，当**同时满足**时发送Telegram提醒：
 
 1. **资金费率条件**: 资金费率绝对值 > 0.1%
    - `|last_funding_rate| > 0.001`
@@ -115,42 +164,66 @@ python3 monitor_demo.py
 2. **持仓量条件**: 短期持仓量激增
    - `最近3次OI均值 / 最近10次OI均值 > 2`
 
-### Telegram Bot配置
+### 📱 Telegram Bot配置
 
-1. 创建Telegram Bot并获取Token
-2. 获取你的Chat ID
-3. 设置环境变量：
+1. **创建Telegram Bot**
+   - 在Telegram中搜索 @BotFather
+   - 发送 `/newbot` 命令
+   - 按照提示创建Bot并获取Token
+
+2. **获取Chat ID**
+   - 向你的Bot发送任意消息
+   - 访问 `https://api.telegram.org/bot<YourBOTToken>/getUpdates`
+   - 在响应中找到 `chat.id` 字段
+
+3. **配置环境变量**
+
+**方法一：使用.env文件**
+```bash
+# 复制示例文件
+cp .env.example .env
+
+# 编辑 .env 文件
+nano .env
+
+# 填入你的配置
+TELEGRAM_BOT_TOKEN=你的Bot Token
+TELEGRAM_CHAT_ID=你的Chat ID
+```
+
+**方法二：设置环境变量**
 ```bash
 export TELEGRAM_BOT_TOKEN="你的Bot Token"
 export TELEGRAM_CHAT_ID="你的Chat ID"
 ```
 
-详细配置说明：
+**方法三：使用配置向导**
 ```bash
-python3 config_example.py
+python3 setup.py
 ```
 
-### 图表功能
+### 📊 图表功能
 
 系统会自动为每个监控提醒生成分析图表，包含：
-- 价格走势对比
-- 基差变化
-- 持仓量变化
-- 资金费率变化（包含0.1%阈值线）
+- **价格走势对比** - 标记价格 vs 指数价格
+- **基差变化** - 基差百分比变化趋势
+- **持仓量变化** - 持仓量历史变化
+- **资金费率变化** - 包含0.1%阈值线
 
-查看推送示例：
-```bash
-python3 push_demo.py
-```
-
-### 监控调度器
+### ⚙️ 监控调度器
 
 启动完整的监控调度器（每5分钟执行一次数据采集和监控）：
 ```bash
-python3 monitor_scheduler.py
+python3 scheduler.py
 ```
 
-## API Endpoints Used
+或者使用融合版本：
+```bash
+python3 binance_oi_monitor.py
+# 选择选项3: 启动定时采集
+```
+
+## 🔗 API Endpoints Used
 
 - **Mark Price & Funding Rate**: `/fapi/v1/premiumIndex`
 - **Index Price**: `/fapi/v1/indexInfo`
@@ -159,67 +232,160 @@ python3 monitor_scheduler.py
 - **Long/Short Ratios**: `/futures/data/globalLongShortAccountRatio`, `/futures/data/topLongShortAccountRatio`, `/futures/data/topLongShortPositionRatio`
 - **Taker Buy/Sell Ratio**: `/futures/data/takerlongshortRatio`
 
-## Data Interpretation
+## 📊 数据分析
 
-### Basis Analysis
-- **Positive Basis**: Mark price > Index price (contango)
-- **Negative Basis**: Mark price < Index price (backwardation)
+### 基差分析 (Basis Analysis)
+- **正基差 (Positive Basis)**: 标记价格 > 指数价格 (正价差)
+- **负基差 (Negative Basis)**: 标记价格 < 指数价格 (逆价差)
 
-### Funding Rate Analysis
-- **Positive Funding**: Longs pay shorts
-- **Negative Funding**: Shorts pay longs
+### 资金费率分析 (Funding Rate Analysis)
+- **正资金费率 (Positive Funding)**: 多头支付空头
+- **负资金费率 (Negative Funding)**: 空头支付多头
 
-### Long/Short Ratios
-- **Ratio > 1**: More long positions than short positions
-- **Ratio < 1**: More short positions than long positions
+### 多空比分析 (Long/Short Ratios)
+- **比率 > 1**: 多头仓位多于空头仓位
+- **比率 < 1**: 空头仓位多于多头仓位
 
-### Taker Buy/Sell Ratio
-- **Ratio > 1**: More taker buy volume than sell volume
-- **Ratio < 1**: More taker sell volume than buy volume
+### 主动买卖比分析 (Taker Buy/Sell Ratio)
+- **比率 > 1**: 主动买入量多于主动卖出量
+- **比率 < 1**: 主动卖出量多于主动买入量
 
-## 长期运行配置
+### 数据分析报告
+
+系统每半小时自动生成分析报告，包含：
+- **价格涨幅/跌幅Top 10**
+- **基差扩大/缩小Top 10**
+- **资金费率上升/下降Top 10**
+- **持仓量增长/减少Top 10**
+
+查看报告：
+```bash
+python3 binance_oi_monitor.py
+# 选择选项2: 数据分析报告
+```
+
+## 🚀 长期运行配置
 
 ### 快速启动
+
+**使用启动脚本（推荐）：**
 ```bash
-# 启动监控服务
-./start_monitor.sh
-
-# 停止监控服务
-./stop_monitor.sh
-
-# 检查服务状态
-./check_status.sh
+./start_collector.sh
 ```
 
 ### 服务器部署
 
 #### 方案1: 使用systemd服务（Linux服务器）
-1. 复制服务文件：`sudo cp binance-monitor.service /etc/systemd/system/`
-2. 重新加载配置：`sudo systemctl daemon-reload`
-3. 启用服务：`sudo systemctl enable binance-monitor.service`
-4. 启动服务：`sudo systemctl start binance-monitor.service`
+
+1. **复制服务文件：**
+```bash
+sudo cp binance-monitor.service /etc/systemd/system/
+```
+
+2. **重新加载配置：**
+```bash
+sudo systemctl daemon-reload
+```
+
+3. **启用服务：**
+```bash
+sudo systemctl enable binance-monitor.service
+```
+
+4. **启动服务：**
+```bash
+sudo systemctl start binance-monitor.service
+```
+
+5. **查看服务状态：**
+```bash
+sudo systemctl status binance-monitor.service
+```
 
 #### 方案2: 使用nohup后台运行
 ```bash
-nohup python monitor_service.py > monitor_service.log 2>&1 &
-echo $! > monitor_service.pid
+# 启动后台服务
+nohup python3 scheduler.py > scheduler.log 2>&1 &
+echo $! > scheduler.pid
+
+# 查看日志
+tail -f scheduler.log
+
+# 停止服务
+kill $(cat scheduler.pid)
 ```
 
-### 监控报告
+### 📈 监控报告
+
 系统每半小时自动生成：
 - **24小时长期趋势报告** - 过去24小时主要变化
 - **6小时短期趋势报告** - 最近6小时快速变化
 
-## 故障排除
+报告内容包括：
+- 价格变化排名
+- 基差变化排名
+- 资金费率变化排名
+- 持仓量变化排名
+
+## 🔧 故障排除
+
+### 常见问题
 
 - **服务无法启动**: 检查依赖和网络连接
 - **数据采集失败**: 检查API调用频率和网络
+- **Telegram提醒未发送**: 检查Bot Token和Chat ID配置
 - **服务意外停止**: 使用systemd服务会自动重启
 
-## Rate Limiting
+### 依赖包
 
-The scripts include built-in delays to avoid hitting Binance API rate limits. For production use, consider implementing more sophisticated rate limiting and error handling.
+**必需依赖:**
+```bash
+pip install -r requirements.txt
+```
 
-## Disclaimer
+**requirements.txt 内容:**
+```
+requests>=2.25.1
+pandas>=1.3.0
+schedule>=1.1.0
+python-binance>=1.0.16
+python-dotenv>=0.19.0
+```
 
-This tool is for educational and research purposes only. Always verify data from official sources before making trading decisions.
+### API限流
+
+脚本内置延迟以避免触发Binance API限流。生产环境中建议实现更复杂的限流和错误处理机制。
+
+## 📋 项目结构
+
+```
+binance_oi_monitor/
+├── binance_oi_monitor.py      # 融合版本主程序
+├── data_collector.py          # 数据采集器
+├── monitor.py                 # 资金费率监控
+├── telegram_bot.py            # Telegram推送
+├── data_analyzer.py           # 数据分析器
+├── scheduler.py               # 定时调度器
+├── chart_generator.py         # 图表生成器
+├── config.py                  # 配置管理
+├── setup.py                   # 配置设置
+├── binance_data_snapshot.py   # 数据快照
+├── binance_symbols.py         # 交易对管理
+├── start_collector.sh         # 启动脚本
+├── binance-monitor.service    # systemd服务文件
+├── requirements.txt           # 依赖包列表
+├── .env.example               # 环境变量示例
+├── data/                      # 数据目录
+├── charts/                    # 图表目录
+└── README.md                  # 说明文档
+```
+
+## ⚠️ 免责声明
+
+本工具仅供教育和研究目的使用。在做出交易决策前，请始终从官方来源验证数据。
+
+---
+
+**项目维护者**: [你的名字]
+**最后更新**: 2025-11-30
+**版本**: v2.0 (融合版本)
