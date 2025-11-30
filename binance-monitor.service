@@ -1,0 +1,16 @@
+[Unit]
+Description=Binance永续合约数据监控服务
+After=network.target
+
+[Service]
+Type=simple
+User=root
+WorkingDirectory=/Users/yixuan/BA_OI_test
+ExecStart=/Users/yixuan/BA_OI_test/venv/bin/python /Users/yixuan/BA_OI_test/monitor_service.py
+Restart=always
+RestartSec=10
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target
