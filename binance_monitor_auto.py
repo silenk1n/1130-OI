@@ -135,11 +135,14 @@ class TelegramBot:
             else:
                 market_cap_info += " (大市值币种 - 需同时满足两个条件)"
 
+        # 处理持仓量比率显示
+        oi_ratio_info = f"{oi_ratio:.2f}x" if oi_ratio is not None else "N/A"
+
         message = (
             "🚨 <b>监控提醒：发现异常交易对</b>\n\n"
             f"💰 交易对：<code>{symbol}</code>\n"
             f"📊 资金费率：{funding_rate_pct:.4f}%\n"
-            f"📈 持仓量比率：{oi_ratio:.2f}x\n"
+            f"📈 持仓量比率：{oi_ratio_info}\n"
             f"📦 当前持仓量：{current_oi:,.0f}"
             f"{market_cap_info}\n\n"
             f"⏰ 发现时间：{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n"

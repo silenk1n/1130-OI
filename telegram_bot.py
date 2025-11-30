@@ -74,11 +74,14 @@ class TelegramBot:
         message = f"🚨 <b>监控提醒</b> 🚨\n\n"
         message += f"<b>交易对:</b> {symbol}\n"
         message += f"<b>资金费率:</b> {funding_rate:.6f} ({funding_direction}{funding_percent:.3f}%)\n"
-        message += f"<b>持仓量比率:</b> {oi_ratio:.2f}x\n"
+        message += f"<b>持仓量比率:</b> {oi_ratio:.2f}x\n" if oi_ratio is not None else "<b>持仓量比率:</b> N/A\n"
         message += f"<b>当前持仓量:</b> {current_oi:,.0f}\n\n"
         message += f"<b>触发条件:</b>\n"
         message += f"• 资金费率绝对值 > 0.1%\n"
-        message += f"• 短期持仓量激增 (3次/10次 > 2x)\n\n"
+        if oi_ratio is not None:
+            message += f"• 短期持仓量激增 (3次/10次 > 2x)\n\n"
+        else:
+            message += f"• 小市值币种 - 仅需满足资金费率条件\n\n"
         message += f"⚠️ 注意风险控制！"
 
         # 如果有图表，发送带图片的消息
