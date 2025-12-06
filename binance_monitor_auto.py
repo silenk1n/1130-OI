@@ -78,7 +78,10 @@ class TelegramBot:
 
         try:
             response = requests.post(url, json=payload, timeout=10)
-            return response.status_code == 200
+            success = response.status_code == 200
+            if success:
+                print(f"Telegram消息发送成功: {message[:50]}...")
+            return success
         except Exception as e:
             print(f"发送Telegram消息失败: {e}")
             return False
@@ -496,7 +499,11 @@ class Monitor:
                         print(f"   市值: ${market_cap:,.0f}")
 
                     # 发送提醒
-                    self.telegram_bot.send_alert(symbol, funding_rate, oi_ratio, current_oi, market_cap)
+                    success = self.telegram_bot.send_alert(symbol, funding_rate, oi_ratio, current_oi, market_cap)
+                    if success:
+                        print(f"✅ Telegram警报发送成功: {symbol}")
+                    else:
+                        print(f"❌ Telegram警报发送失败: {symbol}")
 
             except Exception as e:
                 print(f"监控 {symbol} 时出错: {e}")
