@@ -68,14 +68,21 @@ class TelegramBot:
             bool: 发送是否成功
         """
         # 格式化消息
-        funding_direction = "正" if funding_rate > 0 else "负"
-        funding_percent = abs(funding_rate) * 100
+        if funding_rate is not None:
+            funding_direction = "正" if funding_rate > 0 else "负"
+            funding_percent = abs(funding_rate) * 100
+        else:
+            funding_direction = "N/A"
+            funding_percent = 0
 
         message = f"🚨 <b>监控提醒</b> 🚨\n\n"
         message += f"<b>交易对:</b> {symbol}\n"
-        message += f"<b>资金费率:</b> {funding_rate:.6f} ({funding_direction}{funding_percent:.3f}%)\n"
+        if funding_rate is not None:
+            message += f"<b>资金费率:</b> {funding_rate:.6f} ({funding_direction}{funding_percent:.3f}%)\n"
+        else:
+            message += f"<b>资金费率:</b> N/A\n"
         message += f"<b>持仓量比率:</b> {oi_ratio:.2f}x\n" if oi_ratio is not None else "<b>持仓量比率:</b> N/A\n"
-        message += f"<b>当前持仓量:</b> {current_oi:,.0f}\n\n"
+        message += f"<b>当前持仓量:</b> {current_oi:,.0f}\n\n" if current_oi is not None else "<b>当前持仓量:</b> N/A\n\n"
         message += f"<b>触发条件:</b>\n"
         message += f"• 资金费率绝对值 > 0.1%\n"
         if oi_ratio is not None:

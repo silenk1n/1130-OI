@@ -118,7 +118,7 @@ class TelegramBot:
 
     def send_alert(self, symbol: str, funding_rate: float, oi_ratio: float, current_oi: float, market_cap: Optional[float] = None) -> bool:
         """发送监控提醒"""
-        funding_rate_pct = funding_rate * 100
+        funding_rate_pct = funding_rate * 100 if funding_rate is not None else None
 
         # 构建市值信息
         market_cap_info = ""
@@ -141,16 +141,35 @@ class TelegramBot:
         # 处理持仓量比率显示
         oi_ratio_info = f"{oi_ratio:.2f}x" if oi_ratio is not None else "N/A"
 
-        message = (
-            "🚨 <b>监控提醒：发现异常交易对</b>\n\n"
+        # 构建消息部分
+        message_parts = [
+            "🚨 <b>监控提醒：发现异常交易对</b>\n\n",
             f"💰 交易对：<code>{symbol}</code>\n"
-            f"📊 资金费率：{funding_rate_pct:.4f}%\n"
-            f"📈 持仓量比率：{oi_ratio_info}\n"
-            f"📦 当前持仓量：{current_oi:,.0f}"
-            f"{market_cap_info}\n\n"
-            f"⏰ 发现时间：{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n"
+        ]
+
+        # 资金费率部分
+        if funding_rate_pct is not None:
+            message_parts.append(f"📊 资金费率：{funding_rate_pct:.4f}%\n")
+        else:
+            message_parts.append("📊 资金费率：N/A\n")
+
+        # 持仓量比率部分
+        message_parts.append(f"📈 持仓量比率：{oi_ratio_info}\n")
+
+        # 当前持仓量部分
+        if current_oi is not None:
+            message_parts.append(f"📦 当前持仓量：{current_oi:,.0f}")
+        else:
+            message_parts.append("📦 当前持仓量：N/A")
+
+        # 添加市值信息和其余部分
+        message_parts.extend([
+            f"{market_cap_info}\n\n",
+            f"⏰ 发现时间：{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n",
             "💡 建议：关注资金费率变化和持仓量趋势"
-        )
+        ])
+
+        message = "".join(message_parts)
         return self.send_message(message)
 
 
@@ -492,9 +511,9 @@ class Monitor:
                     alerts.append(alert_info)
 
                     print(f"🚨 发现符合条件的交易对: {symbol}")
-                    print(f"   资金费率: {funding_rate:.6f}")
-                    print(f"   OI比率: {oi_ratio:.2f}x")
-                    print(f"   当前OI: {current_oi:,.0f}")
+                    print(f"   资金费率: {funding_rate:.6f}" if funding_rate is not None else "   资金费率: N/A")
+                    print(f"   OI比率: {oi_ratio:.2f}x" if oi_ratio is not None else "   OI比率: N/A")
+                    print(f"   当前OI: {current_oi:,.0f}" if current_oi is not None else "   当前OI: N/A")
                     if market_cap:
                         print(f"   市值: ${market_cap:,.0f}")
 

@@ -126,9 +126,9 @@ class FundingOIMonitor:
                     alerts.append(alert_info)
 
                     print(f"🚨 发现符合条件的交易对: {symbol}")
-                    print(f"   资金费率: {funding_rate:.6f}")
+                    print(f"   资金费率: {funding_rate:.6f}" if funding_rate is not None else "   资金费率: N/A")
                     print(f"   OI比率: {oi_ratio:.2f}x" if oi_ratio is not None else "   OI比率: N/A")
-                    print(f"   当前OI: {current_oi:,.0f}")
+                    print(f"   当前OI: {current_oi:,.0f}" if current_oi is not None else "   当前OI: N/A")
 
             except Exception as e:
                 print(f"监控 {symbol} 时出错: {e}")
