@@ -516,12 +516,12 @@ def run_scheduler():
     """运行调度器"""
     print("Binance永续合约数据采集调度器")
     print("=" * 50)
-    print("调度器已启动，每5分钟自动采集数据")
+    print("调度器已启动，每15分钟自动采集数据")
     print("按 Ctrl+C 停止调度器")
     print("=" * 50)
 
     # 设置定时任务
-    schedule.every(5).minutes.do(scheduler_job)
+    schedule.every(15).minutes.do(scheduler_job)
 
     # 立即执行一次
     scheduler_job()

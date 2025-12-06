@@ -26,7 +26,7 @@ class Config:
     # Application Settings
     DATA_DIR: str = os.getenv('DATA_DIR', 'data')
     CHARTS_DIR: str = os.getenv('CHARTS_DIR', 'charts')
-    COLLECTION_INTERVAL: int = int(os.getenv('COLLECTION_INTERVAL', '300'))  # 5 minutes
+    COLLECTION_INTERVAL: int = int(os.getenv('COLLECTION_INTERVAL', '900'))  # 15 minutes
 
     # Monitoring Thresholds
     FUNDING_RATE_THRESHOLD: float = float(os.getenv('FUNDING_RATE_THRESHOLD', '0.001'))  # 0.1%

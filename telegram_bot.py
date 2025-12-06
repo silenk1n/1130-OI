@@ -6,7 +6,8 @@ Telegram Bot推送功能
 
 import requests
 import os
-from typing import Optional
+from typing import Optional, List, Dict
+from datetime import datetime
 
 
 class TelegramBot:
@@ -128,6 +129,100 @@ class TelegramBot:
             print(f"Telegram图片发送失败: {e}")
             # 如果图片发送失败，尝试发送纯文本消息
             return self.send_message(caption)
+
+    def send_combined_alerts(self, alerts: List[Dict]) -> bool:
+        """
+        发送合并的警报消息，按照资金费率绝对值从高到低排序
+
+        Args:
+            alerts: 警报列表，每个警报是一个字典，包含:
+                - symbol: 交易对名称
+                - funding_rate: 资金费率（可能为None）
+                - oi_ratio: OI比率（可能为None）
+                - current_oi: 当前持仓量（可能为None）
+                - market_cap: 市值（可能为None）
+
+        Returns:
+            bool: 发送是否成功
+        """
+        if not alerts:
+            print("没有警报需要发送")
+            return True
+
+        # 按照资金费率绝对值从高到低排序
+        # 注意：funding_rate可能为None，需要处理
+        def get_funding_rate_abs(alert):
+            funding_rate = alert.get('funding_rate')
+            if funding_rate is None:
+                return -float('inf')  # None值排在最后
+            return abs(funding_rate)
+
+        sorted_alerts = sorted(alerts, key=get_funding_rate_abs, reverse=True)
+
+        # 构建合并消息
+        message_parts = [
+            "🚨 <b>合并监控警报</b> 🚨\n\n",
+            f"📊 发现 {len(alerts)} 个异常交易对\n",
+            f"⏰ 报告时间：{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n\n",
+            "<b>交易对详情（按资金费率绝对值排序）:</b>\n"
+        ]
+
+        for i, alert in enumerate(sorted_alerts, 1):
+            symbol = alert.get('symbol', 'N/A')
+            funding_rate = alert.get('funding_rate')
+            oi_ratio = alert.get('oi_ratio')
+            current_oi = alert.get('current_oi')
+            market_cap = alert.get('market_cap')
+
+            # 格式化资金费率
+            if funding_rate is not None:
+                funding_rate_str = f"{funding_rate:.6f}"
+                funding_rate_pct = funding_rate * 100
+                funding_direction = "正" if funding_rate > 0 else "负"
+                funding_info = f"{funding_rate_str} ({funding_direction}{funding_rate_pct:.3f}%)"
+            else:
+                funding_info = "N/A"
+
+            # 格式化OI比率
+            oi_ratio_str = f"{oi_ratio:.2f}x" if oi_ratio is not None else "N/A"
+
+            # 格式化当前持仓量
+            if current_oi is not None:
+                current_oi_str = f"{current_oi:,.0f}"
+            else:
+                current_oi_str = "N/A"
+
+            # 格式化市值（如果有）
+            market_cap_info = ""
+            if market_cap is not None:
+                if market_cap >= 1000000000:  # 超过10亿美元
+                    market_cap_str = f"${market_cap/1000000000:.2f}B"
+                elif market_cap >= 1000000:   # 超过100万美元
+                    market_cap_str = f"${market_cap/1000000:.2f}M"
+                else:
+                    market_cap_str = f"${market_cap:,.0f}"
+                market_cap_info = f" | 市值: {market_cap_str}"
+
+            # 构建单行信息
+            line = f"{i}. <code>{symbol}</code>\n"
+            line += f"   资金费率: {funding_info}\n"
+            line += f"   OI比率: {oi_ratio_str}"
+            if market_cap_info:
+                line += market_cap_info
+            line += "\n"
+
+            message_parts.append(line)
+
+        message_parts.extend([
+            f"\n<b>触发条件:</b>\n",
+            f"• 资金费率绝对值 > 0.1%\n",
+            f"• 大市值币种需同时满足持仓量比率 > 2x\n",
+            f"• 小市值币种只需满足资金费率条件\n\n",
+            f"⚠️ 注意风险控制！"
+        ])
+
+        message = "".join(message_parts)
+        return self.send_message(message)
 
 
 def test_telegram_bot():

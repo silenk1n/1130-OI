@@ -33,8 +33,8 @@ class MonitorService:
 
     def setup_schedule(self):
         """设置定时任务"""
-        # 每5分钟采集数据
-        schedule.every(5).minutes.do(self.collect_data_job)
+        # 每15分钟采集数据
+        schedule.every(15).minutes.do(self.collect_data_job)
 
         # 每半小时生成报告
         schedule.every(30).minutes.do(self.generate_report_job)

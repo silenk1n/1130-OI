@@ -146,36 +146,54 @@ class FundingOIMonitor:
         Returns:
             int: 成功发送的提醒数量
         """
-        success_count = 0
+        if not alerts:
+            return 0
 
-        for alert in alerts:
+        # 如果有多个警报，发送合并消息
+        if len(alerts) > 1:
             try:
-                # 为每个提醒生成图表
-                df = self.load_symbol_data(alert['symbol'])
-                chart_path = None
-
-                if df is not None and len(df) >= 5:
-                    chart_path = self.chart_generator.generate_monitoring_chart(
-                        symbol=alert['symbol'],
-                        df=df,
-                        funding_rate=alert['funding_rate'],
-                        oi_ratio=alert['oi_ratio']
-                    )
-
-                # 发送提醒（包含图表）
-                success = self.bot.send_alert(
-                    symbol=alert['symbol'],
-                    funding_rate=alert['funding_rate'],
-                    oi_ratio=alert['oi_ratio'],
-                    current_oi=alert['current_oi'],
-                    chart_path=chart_path
-                )
+                # 发送合并警报（不包含图表）
+                success = self.bot.send_combined_alerts(alerts)
                 if success:
-                    success_count += 1
+                    print(f"✅ 已发送合并提醒，包含 {len(alerts)} 个交易对")
+                    return len(alerts)  # 所有警报视为已发送
+                else:
+                    print("❌ 合并提醒发送失败")
+                    return 0
             except Exception as e:
-                print(f"发送 {alert['symbol']} 提醒失败: {e}")
+                print(f"发送合并提醒失败: {e}")
+                return 0
+        else:
+            # 单个警报：保持原有逻辑（包含图表）
+            success_count = 0
+            for alert in alerts:
+                try:
+                    # 为每个提醒生成图表
+                    df = self.load_symbol_data(alert['symbol'])
+                    chart_path = None
 
-        return success_count
+                    if df is not None and len(df) >= 5:
+                        chart_path = self.chart_generator.generate_monitoring_chart(
+                            symbol=alert['symbol'],
+                            df=df,
+                            funding_rate=alert['funding_rate'],
+                            oi_ratio=alert['oi_ratio']
+                        )
+
+                    # 发送提醒（包含图表）
+                    success = self.bot.send_alert(
+                        symbol=alert['symbol'],
+                        funding_rate=alert['funding_rate'],
+                        oi_ratio=alert['oi_ratio'],
+                        current_oi=alert['current_oi'],
+                        chart_path=chart_path
+                    )
+                    if success:
+                        success_count += 1
+                except Exception as e:
+                    print(f"发送 {alert['symbol']} 提醒失败: {e}")
+
+            return success_count
 
     def run_monitoring(self) -> Tuple[int, int]:
         """

@@ -38,7 +38,7 @@ class Config:
         # 应用设置
         self.DATA_DIR = os.getenv('DATA_DIR', 'data')
         self.CHARTS_DIR = os.getenv('CHARTS_DIR', 'charts')
-        self.COLLECTION_INTERVAL = int(os.getenv('COLLECTION_INTERVAL', '300'))  # 5分钟
+        self.COLLECTION_INTERVAL = int(os.getenv('COLLECTION_INTERVAL', '900'))  # 15分钟
 
         # 监控阈值
         self.FUNDING_RATE_THRESHOLD = float(os.getenv('FUNDING_RATE_THRESHOLD', '0.001'))  # 0.1%
@@ -167,6 +167,100 @@ class TelegramBot:
             f"{market_cap_info}\n\n",
             f"⏰ 发现时间：{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n",
             "💡 建议：关注资金费率变化和持仓量趋势"
+        ])
+
+        message = "".join(message_parts)
+        return self.send_message(message)
+
+    def send_combined_alerts(self, alerts: List[Dict]) -> bool:
+        """
+        发送合并的警报消息，按照资金费率绝对值从高到低排序
+
+        Args:
+            alerts: 警报列表，每个警报是一个字典，包含:
+                - symbol: 交易对名称
+                - funding_rate: 资金费率（可能为None）
+                - oi_ratio: OI比率（可能为None）
+                - current_oi: 当前持仓量（可能为None）
+                - market_cap: 市值（可能为None）
+
+        Returns:
+            bool: 发送是否成功
+        """
+        if not alerts:
+            print("没有警报需要发送")
+            return True
+
+        # 按照资金费率绝对值从高到低排序
+        # 注意：funding_rate可能为None，需要处理
+        def get_funding_rate_abs(alert):
+            funding_rate = alert.get('funding_rate')
+            if funding_rate is None:
+                return -float('inf')  # None值排在最后
+            return abs(funding_rate)
+
+        sorted_alerts = sorted(alerts, key=get_funding_rate_abs, reverse=True)
+
+        # 构建合并消息
+        message_parts = [
+            "🚨 <b>合并监控警报</b> 🚨\n\n",
+            f"📊 发现 {len(alerts)} 个异常交易对\n",
+            f"⏰ 报告时间：{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n\n",
+            "<b>交易对详情（按资金费率绝对值排序）:</b>\n"
+        ]
+
+        for i, alert in enumerate(sorted_alerts, 1):
+            symbol = alert.get('symbol', 'N/A')
+            funding_rate = alert.get('funding_rate')
+            oi_ratio = alert.get('oi_ratio')
+            current_oi = alert.get('current_oi')
+            market_cap = alert.get('market_cap')
+
+            # 格式化资金费率
+            if funding_rate is not None:
+                funding_rate_str = f"{funding_rate:.6f}"
+                funding_rate_pct = funding_rate * 100
+                funding_direction = "正" if funding_rate > 0 else "负"
+                funding_info = f"{funding_rate_str} ({funding_direction}{funding_rate_pct:.3f}%)"
+            else:
+                funding_info = "N/A"
+
+            # 格式化OI比率
+            oi_ratio_str = f"{oi_ratio:.2f}x" if oi_ratio is not None else "N/A"
+
+            # 格式化当前持仓量
+            if current_oi is not None:
+                current_oi_str = f"{current_oi:,.0f}"
+            else:
+                current_oi_str = "N/A"
+
+            # 格式化市值（如果有）
+            market_cap_info = ""
+            if market_cap is not None:
+                if market_cap >= 1000000000:  # 超过10亿美元
+                    market_cap_str = f"${market_cap/1000000000:.2f}B"
+                elif market_cap >= 1000000:   # 超过100万美元
+                    market_cap_str = f"${market_cap/1000000:.2f}M"
+                else:
+                    market_cap_str = f"${market_cap:,.0f}"
+                market_cap_info = f" | 市值: {market_cap_str}"
+
+            # 构建单行信息
+            line = f"{i}. <code>{symbol}</code>\n"
+            line += f"   资金费率: {funding_info}\n"
+            line += f"   OI比率: {oi_ratio_str}"
+            if market_cap_info:
+                line += market_cap_info
+            line += "\n"
+
+            message_parts.append(line)
+
+        message_parts.extend([
+            f"\n<b>触发条件:</b>\n",
+            f"• 资金费率绝对值 > 0.1%\n",
+            f"• 大市值币种需同时满足持仓量比率 > 2x\n",
+            f"• 小市值币种只需满足资金费率条件\n\n",
+            f"⚠️ 注意风险控制！"
         ])
 
         message = "".join(message_parts)
@@ -517,12 +611,7 @@ class Monitor:
                     if market_cap:
                         print(f"   市值: ${market_cap:,.0f}")
 
-                    # 发送提醒
-                    success = self.telegram_bot.send_alert(symbol, funding_rate, oi_ratio, current_oi, market_cap)
-                    if success:
-                        print(f"✅ Telegram警报发送成功: {symbol}")
-                    else:
-                        print(f"❌ Telegram警报发送失败: {symbol}")
+                    # 注意：警报已收集，将在后续统一发送
 
             except Exception as e:
                 print(f"监控 {symbol} 时出错: {e}")
@@ -711,10 +800,15 @@ class AutoMonitorSystem:
         try:
             alerts = self.monitor.monitor_all_symbols()
             self.alerts_found_total += len(alerts)
-            self.alerts_sent_total += len(alerts)  # 简化：每个发现都发送
 
             if alerts:
-                print(f"发现 {len(alerts)} 个符合条件的交易对，已发送提醒")
+                # 发送合并警报
+                success = self.telegram_bot.send_combined_alerts(alerts)
+                if success:
+                    self.alerts_sent_total += len(alerts)  # 统计发送的警报数量
+                    print(f"✅ 发现 {len(alerts)} 个符合条件的交易对，已发送合并提醒")
+                else:
+                    print(f"❌ 发现 {len(alerts)} 个符合条件的交易对，但提醒发送失败")
             else:
                 print("✅ 未发现符合条件的交易对")
 
@@ -739,15 +833,15 @@ class AutoMonitorSystem:
 
     def setup_schedule(self):
         """设置定时任务"""
-        # 每5分钟执行数据采集和监控
-        schedule.every(5).minutes.do(self.collection_job)
+        # 每15分钟执行数据采集和监控
+        schedule.every(15).minutes.do(self.collection_job)
 
         # 每30分钟执行状态报告
         schedule.every(30).minutes.do(self.status_report_job)
 
         print("定时任务设置完成:")
-        print("  📊 数据采集: 每5分钟（所有USDT永续合约）")
-        print("  🔔 监控检查: 每5分钟")
+        print("  📊 数据采集: 每15分钟（所有USDT永续合约）")
+        print("  🔔 监控检查: 每15分钟")
         print("  📈 状态报告: 每30分钟")
 
     def run(self):

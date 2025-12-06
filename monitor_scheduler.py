@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """
 监控系统调度器
-每5分钟执行一次数据采集和监控
+每15分钟执行一次数据采集和监控
 """
 
 import time
@@ -36,7 +36,7 @@ def run_monitor_scheduler():
     """运行监控调度器"""
     print("Binance永续合约监控系统调度器")
     print("=" * 60)
-    print("调度器已启动，每5分钟自动执行数据采集和监控")
+    print("调度器已启动，每15分钟自动执行数据采集和监控")
     print("监控条件:")
     print("• 资金费率绝对值 > 0.1%")
     print("• 短期持仓量激增 (最近3次/最近10次 > 2x)")
@@ -44,7 +44,7 @@ def run_monitor_scheduler():
     print("=" * 60)
 
     # 设置定时任务
-    schedule.every(5).minutes.do(monitoring_job)
+    schedule.every(15).minutes.do(monitoring_job)
 
     # 立即执行一次
     monitoring_job()
